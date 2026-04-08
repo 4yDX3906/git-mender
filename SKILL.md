@@ -4,7 +4,7 @@ description: "git-mender — Fix GitHub issues automatically by reading issue de
 version: "1.1.0"
 author: "t8g"
 tags: ["git", "github", "automation", "issue-fix", "pull-request"]
-homepage: "https://github.com/t8g/git-mender"
+homepage: "https://github.com/4yDX3906/git-mender"
 metadata:
   clawdbot:
     emoji: "🔧"

@@ -1,6 +1,6 @@
 # 🔧 git-mender
 
-[![Skills.sh](https://img.shields.io/badge/skills.sh-git--mender-blue)](https://skills.sh/t8g/git-mender)
+[![Skills.sh](https://img.shields.io/badge/skills.sh-git--mender-blue)](https://skills.sh/4yDX3906/git-mender)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An AI Agent Skill that automatically reads a GitHub issue, analyzes the codebase, implements a fix, and prepares everything for review.
