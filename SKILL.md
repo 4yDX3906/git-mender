@@ -2,7 +2,7 @@
 name: git-mender
 description: "git-mender — Fix GitHub issues automatically by reading issue details and repository code. Use when the user provides a GitHub issue URL, mentions fixing a GitHub issue, or uses the /fix-issue command. Supports URLs in the format https://github.com/{owner}/{repo}/issues/{number}."
 version: "1.1.0"
-author: "t8g"
+author: "4yDX3906"
 tags: ["git", "github", "automation", "issue-fix", "pull-request"]
 homepage: "https://github.com/4yDX3906/git-mender"
 metadata:
