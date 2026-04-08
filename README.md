@@ -5,6 +5,24 @@
 
 An AI Agent Skill that automatically reads a GitHub issue, analyzes the codebase, implements a fix, and submits a pull request — end-to-end, with one confirmation.
 
+---
+
+## ⚡ Quick Install
+
+```bash
+npx skills add 4yDX3906/issue-to-pr
+```
+
+Or install via [ClawHub](https://clawhub.com):
+
+```bash
+clawhub install issue-to-pr
+```
+
+> **That's it!** Once installed, just give your AI agent a GitHub issue URL and watch it work.
+
+---
+
 ## ✨ Features
 
 - **8-Phase Automated Workflow** — from issue parsing to automatic PR submission
@@ -77,6 +95,16 @@ The agent will automatically:
 7. Auto-submit a PR (commit, push, and create PR) upon approval
 
 ## ⚙️ How It Works
+
+```
+  GitHub Issue    Parse & Fetch    Analyze Code    Implement Fix    Run Tests    Submit PR
+ ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌─────────┐   ┌─────────┐
+ │    📋    │ ─▶ │    🔍    │ ─▶ │    🧠    │ ─▶ │    🔧    │ ─▶ │   ✅    │─▶ │   🚀    │
+ └──────────┘    └──────────┘    └──────────┘    └──────────┘    └─────────┘   └─────────┘
+  Read issue      Fetch details    Trace code       Minimal fix     Lint & test   Push & PR
+  from GitHub     & clone repo     & find root      respecting       to verify     with one
+                                   cause            code style       quality       confirmation
+```
 
 | Phase | Description |
 |-------|-------------|
