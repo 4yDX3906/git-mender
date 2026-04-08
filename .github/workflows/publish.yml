@@ -12,12 +12,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install ClawHub CLI
-        run: |
-          curl -fsSL https://clawhub.com/install.sh | bash
-          echo "$HOME/.clawhub/bin" >> $GITHUB_PATH
+        run: npm install -g clawhub
 
       - name: Publish skill
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
-        run: clawhub publish
+        run: clawhub skill publish ./ --tags latest
