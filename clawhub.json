@@ -2,7 +2,7 @@
   "name": "issue-to-pr",
   "version": "1.1.0",
   "description": "Automatically fix GitHub issues by reading issue details, analyzing code, and submitting pull requests",
-  "author": "4yDX3906"
+  "author": "4yDX3906",
   "homepage": "https://github.com/4yDX3906/issue-to-pr",
   "license": "MIT",
   "keywords": ["git", "github", "automation", "issue-fix", "pull-request"]
