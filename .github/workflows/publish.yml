@@ -1,0 +1,23 @@
+name: Publish to ClawHub
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ClawHub CLI
+        run: |
+          curl -fsSL https://clawhub.com/install.sh | bash
+          echo "$HOME/.clawhub/bin" >> $GITHUB_PATH
+
+      - name: Publish skill
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: clawhub publish
