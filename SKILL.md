@@ -1,7 +1,7 @@
 ---
 name: issue-to-pr
 description: "issue-to-pr — Automatically fix GitHub issues end-to-end: reads the issue, analyzes repository code, implements a fix, and submits a pull request. Use when the user provides a GitHub issue URL, mentions fixing a GitHub issue, or uses the /fix-issue command. Supports URLs in the format https://github.com/{owner}/{repo}/issues/{number}."
-version: "1.2.0"
+version: "1.3.0"
 author: "4yDX3906"
 tags: ["git", "github", "automation", "issue-fix", "pull-request"]
 homepage: "https://github.com/4yDX3906/issue-to-pr"
@@ -23,7 +23,7 @@ You are an autonomous agent that reads a GitHub issue, understands the problem, 
 
 Use this checklist to track your progress through the workflow:
 
-- [ ] Phase 1: Parse Issue URL
+- [ ] Phase 1: Parse Issue Reference
 - [ ] Phase 2: Fetch Issue Details
 - [ ] Phase 3: Clone or Locate Repository
 - [ ] Phase 4: Analyze the Issue
@@ -34,19 +34,28 @@ Use this checklist to track your progress through the workflow:
 
 ---
 
-## Phase 1: Parse Issue URL
+## Phase 1: Parse Issue Reference
 
-Extract the GitHub issue URL from the user's input and parse the components.
+Extract the GitHub issue reference from the user's input.
 
-**Expected URL format:** `https://github.com/{owner}/{repo}/issues/{number}`
+**Supported input formats:**
 
-1. Scan the user message for a URL matching the pattern above.
-2. Extract three values:
-   - `owner` — the GitHub organization or user
-   - `repo` — the repository name
-   - `number` — the issue number
-3. If no valid URL is found, ask the user to provide a valid GitHub issue URL.
-4. Confirm the parsed values before proceeding:
+| Format | Example |
+|---|---|
+| Full URL | `https://github.com/owner/repo/issues/123` |
+| Shorthand | `owner/repo#123` |
+| Issue number only | `#123` or `123` (requires being in a git repo) |
+
+### Parsing logic
+
+1. **Full URL:** Scan for `https://github.com/{owner}/{repo}/issues/{number}` and extract components directly.
+2. **Shorthand:** Match `{owner}/{repo}#{number}` pattern.
+3. **Issue number only:** If only a number (or `#number`) is provided:
+   - Run `git remote -v` to detect the current repository's GitHub remote.
+   - Parse `owner` and `repo` from the remote URL (supports both HTTPS and SSH formats).
+   - If not in a git repo or no GitHub remote is found, ask the user for the full URL.
+4. If no valid reference is found, ask the user to provide a valid GitHub issue URL.
+5. Confirm the parsed values before proceeding:
    > Parsed issue: **{owner}/{repo}#{number}**
 
 ---
@@ -109,22 +118,10 @@ git remote -v 2>/dev/null
 
 ### Step 2: Clone if needed
 
-Check if the repo exists locally in a common location:
+If the current workspace is not the target repository, clone it:
 
 ```bash
-ls -d ~/Desktop/{repo} ~/projects/{repo} ~/repos/{repo} /tmp/{repo} 2>/dev/null
-```
-
-If not found, clone it:
-
-```bash
-gh repo clone {owner}/{repo} /tmp/{repo}
-```
-
-If `gh` is not available:
-
-```bash
-git clone https://github.com/{owner}/{repo}.git /tmp/{repo}
+gh repo clone {owner}/{repo} /tmp/{repo} 2>/dev/null || git clone https://github.com/{owner}/{repo}.git /tmp/{repo}
 ```
 
 Then inform the user about the clone location.
@@ -137,13 +134,35 @@ After locating or cloning the repository, `cd` into the repository directory bef
 cd {repo_path}
 ```
 
+### Step 2.7: Check push permission and prepare fork if needed
+
+Determine if you have push access to the repository:
+
+```bash
+gh api repos/{owner}/{repo}/collaborators/$(gh api user --jq '.login') --silent 2>/dev/null
+has_push=$?
+```
+
+If `has_push` is non-zero (no write access), fork the repository now:
+
+```bash
+gh repo fork {owner}/{repo} --remote-name fork --clone=false
+```
+
+This ensures the fork is ready before creating the fix branch. Note which remote to push to:
+- If you have write access: push to `origin`
+- If you forked: push to `fork`
+
 ### Step 3: Ensure correct branch
 
 First, detect the default branch:
 
 ```bash
-# Detect the default branch
-default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+# Detect the default branch (prefer GitHub API, fallback to git)
+default_branch=$(gh api repos/{owner}/{repo} --jq '.default_branch' 2>/dev/null)
+if [ -z "$default_branch" ]; then
+  default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+fi
 if [ -z "$default_branch" ]; then
   default_branch="main"
 fi
@@ -155,6 +174,20 @@ Then check out the default branch and pull latest changes:
 git checkout $default_branch
 git pull --ff-only
 ```
+
+Check if the fix branch already exists:
+
+```bash
+if git show-ref --verify --quiet refs/heads/fix/issue-{number} 2>/dev/null || \
+   git show-ref --verify --quiet refs/remotes/origin/fix/issue-{number} 2>/dev/null; then
+  echo "Branch fix/issue-{number} already exists"
+fi
+```
+
+If the branch already exists, ask the user whether to:
+- **Reuse** the existing branch and continue from where it left off
+- **Recreate** the branch from the latest default branch (deletes existing work)
+- **Rename** to `fix/issue-{number}-v2` (or incrementing suffix)
 
 Create the fix branch:
 
@@ -190,11 +223,25 @@ Once you find candidate files:
 
 ### 4.3 Root Cause Analysis
 
-Before writing any code, clearly state:
+Before writing any code, produce a structured analysis:
 
-1. **Root cause:** Why the bug occurs.
-2. **Affected code:** Which file(s) and function(s) need changes.
-3. **Fix approach:** What the minimal change should be.
+```
+### Analysis Result
+- **Root Cause:** {Why the bug occurs}
+- **Affected Files:** {file1 (function_name), file2 (function_name)}
+- **Fix Strategy:** {What the minimal change should be}
+- **Risk Assessment:** Low / Medium / High
+- **Estimated Changes:** {N files, ~M lines}
+```
+
+This structured output will be referenced in Phase 5 (implementation) and Phase 7 (summary).
+
+### 4.4 Scope Assessment
+
+Before proceeding to implementation, assess the scope:
+
+- **Multiple sub-problems:** If the issue describes multiple distinct problems, focus on the most critical one first. Note remaining items for follow-up issues or separate PRs.
+- **Monorepo detection:** Check for `workspaces` in `package.json`, `pnpm-workspace.yaml`, `lerna.json`, or similar workspace config files. If found, narrow your search scope to the relevant package/workspace.
 
 ---
 
@@ -245,6 +292,15 @@ Look for common indicators:
 - If tests **pass**, proceed to Phase 7.
 - If tests **fail**, analyze the failure, adjust the fix, and re-run.
 
+### 6.2.1 No Test Framework Detected
+
+If no test runner or test files are found:
+
+1. Run static analysis using `get_problems` on all changed files to catch syntax errors and type issues.
+2. Manually verify the fix by reading through the changed code paths.
+3. Note in the PR that automated tests were not available:
+   > No automated test framework was detected in this project. The fix was verified via static analysis and manual code review.
+
 ### 6.3 Lint / Format Check (if available)
 
 Check if the project has lint or format tools configured, and run them:
@@ -289,7 +345,7 @@ Highlight the key modifications and explain their impact.
 ### 7.3 Wait for User Confirmation
 
 Ask the user:
-> Do you want to adopt these changes? If anything needs adjustment, let me know.
+> Would you like me to submit these changes as a Pull Request? If anything needs adjustment, let me know.
 
 - If the user **approves**, proceed to Phase 8.
 - If the user **requests changes**, revise the fix (return to Phase 5) and re-present.
@@ -298,13 +354,7 @@ Ask the user:
 
 ## Phase 8: Submit Pull Request (User-Approved)
 
-Only execute this phase after the user has confirmed the changes in Phase 7.
-
-First, ask the user:
-> Would you like me to automatically commit and submit a PR to the repository?
-
-- If the user **declines**, show the suggested commit message and `gh pr create` command for manual execution (see Fallback below).
-- If the user **agrees**, execute Steps 1–4 automatically.
+Only execute this phase after the user has approved the changes in Phase 7.
 
 ### Step 1: Stage and Commit
 
@@ -317,49 +367,46 @@ git commit -m "fix: {short description} (#{number})
 Closes #{number}"
 ```
 
-### Step 2: Check Push Permission & Handle Fork
+### Step 2: Push the branch
 
-Attempt to push to the origin repository:
+Push to the appropriate remote based on the permission check from Phase 3:
 
 ```bash
+# If you have write access (push succeeded in Phase 3 check):
 git push origin fix/issue-{number}
+
+# If you forked the repository in Phase 3:
+git push fork fix/issue-{number}
 ```
 
-- If the push **succeeds**, continue to Step 3 with `--head fix/issue-{number}`.
-- If the push **fails** (permission denied / 403):
-  1. Fork the repository:
-     ```bash
-     gh repo fork {owner}/{repo} --clone=false
-     ```
-  2. Detect your GitHub username:
-     ```bash
-     gh api user --jq '.login'
-     ```
-  3. Add fork as a remote:
-     ```bash
-     git remote add fork https://github.com/{your_username}/{repo}.git
-     ```
-  4. Push to the fork:
-     ```bash
-     git push fork fix/issue-{number}
-     ```
-  5. Continue to Step 3 with `--head {your_username}:fix/issue-{number}`.
+### Step 2.5: Check for repository PR template
+
+```bash
+pr_template=""
+for f in .github/PULL_REQUEST_TEMPLATE.md .github/pull_request_template.md docs/pull_request_template.md PULL_REQUEST_TEMPLATE.md; do
+  if [ -f "$f" ]; then
+    pr_template="$f"
+    break
+  fi
+done
+```
+
+If a PR template is found, use it as the base for the PR body and fill in the relevant sections. Otherwise, use the default template below.
 
 ### Step 3: Create Pull Request
 
-```bash
-gh pr create \
-  --repo {owner}/{repo} \
-  --title "fix: {short description}" \
-  --body "## Summary
+#### Default PR Body Template
+
+```
+## Summary
 
 Fixes #{number}.
 
 ### Problem
-{Brief problem description}
+{Brief problem description from issue analysis}
 
 ### Solution
-{Brief solution description}
+{Brief solution description from fix implementation}
 
 ### Changes
 - {change 1}
@@ -370,12 +417,21 @@ Fixes #{number}.
 - [x] {Any additional verification performed}
 
 ---
-<sub>🔧 Generated by [issue-to-pr](https://github.com/4yDX3906/issue-to-pr)</sub>" \
+<sub>🔧 Generated by [issue-to-pr](https://github.com/4yDX3906/issue-to-pr)</sub>
+```
+
+```bash
+gh pr create \
+  --repo {owner}/{repo} \
+  --title "fix: {short description}" \
+  --body "$pr_body" \
   --base {default_branch} \
   --head {head_ref}
 ```
 
 > `{head_ref}` is `fix/issue-{number}` for direct push or `{your_username}:fix/issue-{number}` for fork push.
+
+> **Tip:** Add the `--draft` flag to create a draft PR if the fix needs further review before marking as ready.
 
 ### Step 4: Verify & Report
 
@@ -430,54 +486,14 @@ Handle these common failure scenarios gracefully:
 | User's `gh` not authenticated | Prompt user to run `gh auth login` first |
 | Branch already exists on remote | Ask user whether to force-push or create a new branch name |
 | PR already exists for this branch | Show existing PR URL and ask whether to update |
+| No test framework found | Run static analysis with `get_problems`, verify manually, and note in PR |
+| Issue contains multiple problems | Fix the most critical problem first; note remaining items as follow-up |
+| Fix branch already exists | Ask user to reuse, recreate, or rename the branch |
 
 ---
 
-## External Endpoints
+## Notes
 
-This skill interacts with the following external services:
-
-| Endpoint | Purpose | Data Sent |
-|---|---|---|
-| `github.com` | Clone repositories, fetch issue details, push branches, create PRs | Git operations, branch names, PR metadata |
-| GitHub API (via `gh` CLI) | Read issues/comments, create PRs, fork repos, check auth | Issue number, repo owner/name, PR title/body |
-
-No other external services are contacted. All code analysis and modification happens locally.
-
----
-
-## Security and Privacy
-
-- **Local operations**: All code reading, analysis, and modification happens on your local machine.
-- **Data sent externally**: Only standard Git and GitHub API operations (clone, push, PR creation) send data to GitHub. No code is sent to third-party services.
-- **Authentication**: Uses your existing `gh` CLI authentication. No additional credentials are stored or transmitted.
-- **No telemetry**: This skill does not collect or transmit any usage data.
-
----
-
-## Model Invocation
-
-This skill is designed for autonomous execution within an AI coding assistant. When triggered, the agent will:
-
-1. Parse the GitHub issue URL from user input
-2. Fetch issue details via `gh` CLI or web scraping
-3. Clone or locate the repository locally
-4. Analyze the codebase to identify the root cause
-5. Implement a minimal fix
-6. Run tests and verification
-7. Present changes for user review
-8. Submit a PR only after explicit user approval
-
-Steps 7 and 8 require explicit user confirmation before proceeding. The agent will not push code or create PRs without user consent.
-
----
-
-## Trust Statement
-
-By using this skill, you authorize the agent to:
-- Read GitHub issue content from public or authenticated-accessible repositories
-- Clone repositories to your local machine
-- Make code modifications in a dedicated branch
-- Push changes and create pull requests **only with your explicit approval**
-
-All Git operations use your existing `gh` CLI credentials. Only install this skill if you trust the repositories you intend to use it with.
+- **Local operations:** All code analysis and modification happens locally. Only standard Git and GitHub API operations (clone, push, PR creation) send data to GitHub.
+- **Authentication:** Uses your existing `gh` CLI credentials. No additional credentials are stored.
+- **User consent required:** The agent will not push code or create PRs without explicit user approval in Phase 7.
